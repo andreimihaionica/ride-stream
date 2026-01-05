@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>RideStream</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background: #eef2f3;
+        }
+
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        input,
+        button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            box-sizing: border-box;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>🚖 Request a Ride</h2>
+
+        <div id="login-section">
+            <input type="email" id="email" placeholder="Email" value="test@example.com">
+            <input type="password" id="password" placeholder="Password" value="password123">
+            <button onclick="register()">Register First</button>
+            <button onclick="login()">Login</button>
+        </div>
+
+        <div id="booking-section" class="hidden">
+            <p>Logged in as: <span id="user-display"></span></p>
+            <input type="text" id="pickup" placeholder="Pickup Location">
+            <input type="text" id="dest" placeholder="Destination">
+            <button onclick="bookRide()">Request Ride</button>
+            <p id="message" style="color: green; margin-top: 10px;"></p>
+        </div>
+    </div>
+
+    <script>
+        let token = '';
+        let userId = '';
+
+        async function register() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const res = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password, role: 'passenger' })
+            });
+            alert(res.ok ? 'Registered! Now Login.' : 'Error registering');
+        }
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await res.json();
+
+            if (data.token) {
+                token = data.token;
+                // Decode token roughly to get ID (in real app, verify properly)
+                userId = 1; // Simplification for demo
+                document.getElementById('login-section').classList.add('hidden');
+                document.getElementById('booking-section').classList.remove('hidden');
+                document.getElementById('user-display').innerText = email;
+            } else {
+                alert('Login failed');
+            }
+        }
+
+        async function bookRide() {
+            const pickup = document.getElementById('pickup').value;
+            const destination = document.getElementById('dest').value;
+
+            const res = await fetch('/api/ride/request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ userId, pickup, destination })
+            });
+
+            if (res.ok) {
+                document.getElementById('message').innerText = "Ride Requested! (Sent to RabbitMQ)";
+            }
+        }
+    </script>
+</body>
+
+</html>
