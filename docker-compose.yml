@@ -89,7 +89,7 @@ services:
       - kafka
       - redis
     ports:
-      - "3003:80"
+      - "3010:80"
 
   invoice-function:
     build: ./functions/invoice-function

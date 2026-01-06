@@ -21,11 +21,14 @@
         }
 
         input,
+        select,
         button {
             width: 100%;
             padding: 10px;
             margin: 5px 0;
             box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
 
         button {
@@ -33,6 +36,8 @@
             color: white;
             border: none;
             cursor: pointer;
+            font-weight: bold;
+            margin-top: 15px;
         }
 
         button:hover {
@@ -57,11 +62,32 @@
         </div>
 
         <div id="booking-section" class="hidden">
-            <p>Logged in as: <span id="user-display"></span></p>
-            <input type="text" id="pickup" placeholder="Pickup Location">
-            <input type="text" id="dest" placeholder="Destination">
+            <p>Logged in as: <strong id="user-display"></strong></p>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 15px 0;">
+
+            <label><strong>Pickup Location:</strong></label>
+            <select id="pickup">
+                <option value="Current Location">📍 Current Location</option>
+                <option value="UBB Main" data-lat="46.767402" data-lng="23.591516">UBB Main Building</option>
+                <option value="FSEGA" data-lat="46.773316" data-lng="23.621389">FSEGA</option>
+                <option value="Iulius Mall" data-lat="46.772500" data-lng="23.628800">Iulius Mall</option>
+                <option value="Cluj Arena" data-lat="46.766800" data-lng="23.571400">Cluj Arena</option>
+                <option value="Central Station" data-lat="46.783600" data-lng="23.587800">Train Station</option>
+                <option value="Airport" data-lat="46.785200" data-lng="23.686200">Avram Iancu Airport</option>
+            </select>
+
+            <label><strong>Destination:</strong></label>
+            <select id="dest">
+                <option value="FSEGA" data-lat="46.773316" data-lng="23.621389" selected>FSEGA</option>
+                <option value="UBB Main" data-lat="46.767402" data-lng="23.591516">UBB Main Building</option>
+                <option value="Iulius Mall" data-lat="46.772500" data-lng="23.628800">Iulius Mall</option>
+                <option value="Cluj Arena" data-lat="46.766800" data-lng="23.571400">Cluj Arena</option>
+                <option value="Central Station" data-lat="46.783600" data-lng="23.587800">Train Station</option>
+                <option value="Airport" data-lat="46.785200" data-lng="23.686200">Avram Iancu Airport</option>
+            </select>
+
             <button onclick="bookRide()">Request Ride</button>
-            <p id="message" style="color: green; margin-top: 10px;"></p>
+            <p id="message" style="color: green; margin-top: 10px; font-weight: bold; text-align: center;"></p>
         </div>
     </div>
 
@@ -72,39 +98,89 @@
         async function register() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            const res = await fetch('/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password, role: 'passenger' })
-            });
-            alert(res.ok ? 'Registered! Now Login.' : 'Error registering');
+            try {
+                const res = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password, role: 'passenger' })
+                });
+                alert(res.ok ? 'Registered! Now Login.' : 'Error registering');
+            } catch (e) { alert("Connection Error"); }
         }
 
         async function login() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password })
-            });
-            const data = await res.json();
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
 
-            if (data.token) {
-                token = data.token;
-                // Decode token roughly to get ID (in real app, verify properly)
-                userId = 1; // Simplification for demo
-                document.getElementById('login-section').classList.add('hidden');
-                document.getElementById('booking-section').classList.remove('hidden');
-                document.getElementById('user-display').innerText = email;
-            } else {
-                alert('Login failed');
-            }
+                if (data.token) {
+                    token = data.token;
+                    userId = 1;
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('booking-section').classList.remove('hidden');
+                    document.getElementById('user-display').innerText = email;
+                } else {
+                    alert('Login failed');
+                }
+            } catch (e) { alert("Connection Error"); }
+        }
+
+        function getBrowserLocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject("Geolocation not supported");
+                } else {
+                    navigator.geolocation.getCurrentPosition(resolve, reject);
+                }
+            });
         }
 
         async function bookRide() {
-            const pickup = document.getElementById('pickup').value;
-            const destination = document.getElementById('dest').value;
+            const pickupSelect = document.getElementById('pickup');
+            const destSelect = document.getElementById('dest');
+            const messageEl = document.getElementById('message');
+
+            const pickupOption = pickupSelect.options[pickupSelect.selectedIndex];
+            const destOption = destSelect.options[destSelect.selectedIndex];
+
+            const destName = destOption.text;
+            let pickupName = pickupOption.text;
+
+            let pickupCoords = null;
+            let destCoords = {
+                lat: parseFloat(destOption.getAttribute('data-lat')),
+                lng: parseFloat(destOption.getAttribute('data-lng'))
+            };
+
+            if (pickupSelect.value === "Current Location") {
+                messageEl.innerText = "📍 Detecting your location...";
+                messageEl.style.color = "blue";
+
+                try {
+                    const position = await getBrowserLocation();
+                    pickupCoords = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    console.log("Detected Location:", pickupCoords);
+                    messageEl.innerText = "Location Found! Booking...";
+                } catch (error) {
+                    alert("Could not get your location. Please allow permissions.");
+                    messageEl.innerText = "";
+                    return;
+                }
+            } else {
+                pickupCoords = {
+                    lat: parseFloat(pickupOption.getAttribute('data-lat')),
+                    lng: parseFloat(pickupOption.getAttribute('data-lng'))
+                };
+            }
 
             const res = await fetch('/api/ride/request', {
                 method: 'POST',
@@ -112,11 +188,23 @@
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ userId, pickup, destination })
+                body: JSON.stringify({ userId, pickup: pickupName, destination: destName })
             });
 
             if (res.ok) {
-                document.getElementById('message').innerText = "Ride Requested! (Sent to RabbitMQ)";
+                document.getElementById('message').innerText = "Ride Requested! Driver Dispatched.";
+                document.getElementById('message').style.color = "green";
+
+                await fetch('/api/location/mission', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        pickup: pickupCoords,
+                        destination: destCoords
+                    })
+                });
+
+                console.log(`Simulation started: ${pickupName} -> ${destName}`);
             }
         }
     </script>

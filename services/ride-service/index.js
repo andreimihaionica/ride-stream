@@ -1,13 +1,14 @@
-import express from 'express';
-import { json } from 'body-parser';
-import { connect } from 'amqplib';
-import { Pool } from 'pg';
-import cors from 'cors';
+const express = require('express');
+const bodyParser = require('body-parser');
+const amqp = require('amqplib');
+const { Pool } = require('pg');
+const cors = require('cors');
 
 const app = express();
-app.use(json());
+app.use(bodyParser.json());
 app.use(cors());
 
+// --- Database Connection ---
 const pool = new Pool({
   user: process.env.POSTGRES_USER || 'user',
   host: process.env.POSTGRES_HOST || 'postgres',
@@ -15,6 +16,7 @@ const pool = new Pool({
   password: process.env.POSTGRES_PASSWORD || 'password',
   port: 5432,
 });
+
 
 async function initDB() {
   try {
@@ -28,9 +30,9 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('Database connected & Table "rides" created/verified.');
+    console.log('Ride DB connected & Table "rides" created/verified.');
   } catch (err) {
-    console.error('Database connection failed, retrying in 5s...', err.message);
+    console.error('Ride DB connection failed, retrying in 5s...', err.message);
     setTimeout(initDB, 5000);
   }
 }
@@ -38,16 +40,18 @@ async function initDB() {
 initDB();
 
 // --- RabbitMQ Setup ---
-const RABBIT_URL = 'amqp://rabbitmq';
+const RABBIT_URL = 'amqp://rabbitmq'; 
 const QUEUE_NAME = 'ride_requests';
 let channel;
 
 async function connectRabbit() {
   try {
-    const connection = await connect(RABBIT_URL);
+    const connection = await amqp.connect(RABBIT_URL);
+    
     channel = await connection.createChannel();
     await channel.assertQueue(QUEUE_NAME);
     console.log('Connected to RabbitMQ');
+    
 
     consumeRides();
   } catch (err) {
@@ -70,7 +74,7 @@ function consumeRides() {
           [data.userId, data.pickup, data.destination, 'driver_assigned']
         );
         console.log('Worker: Ride saved to DB.');
-        channel.ack(msg);
+        channel.ack(msg); 
       } catch (err) {
         console.error('Error saving ride:', err.message);
       }
@@ -85,8 +89,9 @@ app.post('/request', (req, res) => {
   if (!channel) return res.status(500).json({ message: 'Queue not ready' });
 
   const message = { userId, pickup, destination };
+  
   channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(message)));
-
+  
   console.log('API: Sent to queue:', message);
   res.status(202).json({ message: 'Ride request received, searching for driver...' });
 });

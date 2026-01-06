@@ -4,9 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Driver Dashboard</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <style>
         body {
             font-family: sans-serif;
@@ -34,58 +32,72 @@
 
 <body>
     <div class="card">
-        <h1>🚗 Driver Dashboard (Live)</h1>
-        <p>Real-time tracking via Kafka, Redis & OpenStreetMap</p>
-
-        <div id="status">Waiting for signal...</div>
-
+        <h1>🚗 Driver Dashboard</h1>
+        <p>Phase: <strong id="phase-text">Idle</strong></p>
         <div id="map"></div>
-
-        <pre id="debug" style="margin-top:20px; color: #555; font-size: 12px;"></pre>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script>
-        const driverId = 1;
+        const map = L.map('map').setView([46.770129, 23.590299], 14);
 
-        const map = L.map('map').setView([40.7128, -74.0060], 15);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        }).addTo(map);
-
+        // Icons
         const carIcon = L.icon({
             iconUrl: 'https://cdn-icons-png.flaticon.com/512/744/744465.png',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
+            iconSize: [32, 32], iconAnchor: [16, 16],
         });
 
-        const marker = L.marker([40.7128, -74.0060], { icon: carIcon }).addTo(map);
+        const pickupIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
+        const destIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowSize: [41, 41]
+        });
+
+        const carMarker = L.marker([0, 0], { icon: carIcon }).addTo(map);
+
+        let pickupMarker = null;
+        let destMarker = null;
 
         async function fetchLocation() {
             try {
-                const response = await fetch(`/api/location/location/${driverId}`);
-
-                if (!response.ok) {
-                    throw new Error("Driver not found yet");
-                }
-
+                const response = await fetch(`/api/location/location/1`);
+                if (!response.ok) return;
                 const data = await response.json();
 
-                document.getElementById('status').innerText = `Lat: ${data.lat.toFixed(5)}, Lng: ${data.lng.toFixed(5)}`;
-                document.getElementById('debug').innerText = JSON.stringify(data, null, 2);
+                carMarker.setLatLng([data.lat, data.lng]);
+                document.getElementById('phase-text').innerText = data.phase.toUpperCase();
 
-                const newLatLng = [data.lat, data.lng];
-                marker.setLatLng(newLatLng);
+                if (data.mission) {
+                    if (!pickupMarker) {
+                        pickupMarker = L.marker([data.mission.pickup.lat, data.mission.pickup.lng], { icon: pickupIcon })
+                            .addTo(map)
+                            .bindPopup("🟢 PICKUP LOCATION");
+                    }
+                    if (!destMarker) {
+                        destMarker = L.marker([data.mission.destination.lat, data.mission.destination.lng], { icon: destIcon })
+                            .addTo(map)
+                            .bindPopup("🔴 DESTINATION");
+                    }
+                } else {
+                    if (pickupMarker) { map.removeLayer(pickupMarker); pickupMarker = null; }
+                    if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+                }
 
-                map.panTo(newLatLng);
-
-            } catch (err) {
-                console.log("Waiting for data...", err);
-            }
+            } catch (err) { console.error(err); }
         }
 
         setInterval(fetchLocation, 1000);

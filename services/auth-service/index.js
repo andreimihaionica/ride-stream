@@ -1,12 +1,12 @@
-import express from 'express';
-import { json } from 'body-parser';
-import { sign } from 'jsonwebtoken';
-import { hash, compare } from 'bcryptjs';
-import { Pool } from 'pg';
-import cors from 'cors';
+const express = require('express');
+const bodyParser = require('body-parser');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { Pool } = require('pg');
+const cors = require('cors');
 
 const app = express();
-app.use(json());
+app.use(bodyParser.json());
 app.use(cors());
 
 // --- Database Connection ---
@@ -44,13 +44,14 @@ const SECRET_KEY = 'super_secret_assignment_key';
 
 app.post('/register', async (req, res) => {
   const { email, password, role } = req.body;
-
+  
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password required' });
   }
 
   try {
-    const hashedPassword = await hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
     const newUser = await pool.query(
       'INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role',
       [email, hashedPassword, role || 'passenger']
@@ -67,19 +68,20 @@ app.post('/login', async (req, res) => {
 
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-
+    
     if (result.rows.length === 0) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const user = result.rows[0];
-    const validPassword = await compare(password, user.password);
+    
+    const validPassword = await bcrypt.compare(password, user.password);
 
     if (!validPassword) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const token = sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
+    const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
     res.json({ token, role: user.role });
 
   } catch (err) {

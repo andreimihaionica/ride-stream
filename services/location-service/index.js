@@ -1,101 +1,121 @@
-import express from 'express';
-import { Kafka } from 'kafkajs';
-import { createClient } from 'redis';
-import cors from 'cors';
+const express = require('express');
+const bodyParser = require('body-parser');
+const { Kafka } = require('kafkajs');
+const { createClient } = require('redis');
+const cors = require('cors');
 
 const app = express();
 app.use(cors());
+app.use(bodyParser.json());
 
 // --- Configuration ---
-const KAFKA_BROKER = process.env.KAFKA_BROKER || 'kafka:9092';
+const KAFKA_BROKER = process.env.KAFKA_BROKER || 'kafka:29092';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const TOPIC = 'driver-locations';
 
-// --- Redis Setup ---
+// --- Global Simulation State ---
+let driverState = {
+  id: 1,
+  lat: 46.770129,
+  lng: 23.590299,
+  targetLat: null,
+  targetLng: null,
+  phase: 'idle',
+  finalDest: null,
+  mission: null // { pickup: {lat,lng}, destination: {lat,lng} }
+};
+
+// --- Redis & Kafka Setup ---
 const redisClient = createClient({ url: REDIS_URL });
 redisClient.on('error', (err) => console.error('Redis Client Error', err));
-
-async function startRedis() {
-  await redisClient.connect();
-  console.log('Connected to Redis');
-}
-
-// --- Kafka Setup ---
 const kafka = new Kafka({ clientId: 'location-service', brokers: [KAFKA_BROKER] });
 const producer = kafka.producer();
-const consumer = kafka.consumer({ groupId: 'location-group' });
 
-async function startKafka() {
-  try {
-    await producer.connect();
-    console.log('Kafka Producer connected');
-
-    await consumer.connect();
-    await consumer.subscribe({ topic: TOPIC, fromBeginning: false });
-    console.log('Kafka Consumer connected');
-
-    await consumer.run({
-      eachMessage: async ({ topic, partition, message }) => {
-        const data = JSON.parse(message.value.toString());
-        const driverId = data.driverId;
-
-        console.log(`Kafka: Received location for Driver ${driverId}`);
-
-        // SAVE TO REDIS (Key: "driver:123", Value: JSON String)
-        await redisClient.set(`driver:${driverId}`, JSON.stringify(data));
-      },
-    });
-
-    startDriverSimulation();
-
-  } catch (err) {
-    console.error('Error connecting to Kafka, retrying in 5s...', err.message);
-    setTimeout(startKafka, 5000);
-  }
+async function startInfra() {
+  await redisClient.connect();
+  await producer.connect();
+  console.log('Infra Connected');
+  startDriverSimulation();
 }
 
-// --- Simulation Logic (The Fake Driver) ---
+// --- Simulation Logic ---
+function moveTowards(current, target, step) {
+  if (Math.abs(target - current) < step) return target;
+  return current < target ? current + step : current - step;
+}
+
 function startDriverSimulation() {
-  let lat = 40.7128;
-  let lng = -74.0060;
-  const driverId = 1;
-
   setInterval(async () => {
-    lat += 0.0001;
-    lng += 0.0001;
+    // Movement Logic
+    if (driverState.phase !== 'idle' && driverState.targetLat !== null) {
+      const speed = 0.0002;
+      driverState.lat = moveTowards(driverState.lat, driverState.targetLat, speed);
+      driverState.lng = moveTowards(driverState.lng, driverState.targetLng, speed);
 
-    const locationUpdate = { driverId, lat, lng, timestamp: Date.now() };
+      // Check arrival
+      if (driverState.lat === driverState.targetLat && driverState.lng === driverState.targetLng) {
+        if (driverState.phase === 'pickup') {
+          driverState.phase = 'trip';
+          driverState.targetLat = driverState.finalDest.lat;
+          driverState.targetLng = driverState.finalDest.lng;
+        } else if (driverState.phase === 'trip') {
+          driverState.phase = 'idle';
+          driverState.targetLat = null;
+          driverState.targetLng = null;
+          driverState.mission = null;
+        }
+      }
+    }
+
+    // Broadcast Update
+    const locationUpdate = {
+      driverId: driverState.id,
+      lat: driverState.lat,
+      lng: driverState.lng,
+      phase: driverState.phase,
+      mission: driverState.mission,
+      timestamp: Date.now()
+    };
 
     try {
       await producer.send({
         topic: TOPIC,
         messages: [{ value: JSON.stringify(locationUpdate) }],
       });
-      console.log(`Sim: Sent update for Driver ${driverId}`);
+      await redisClient.set(`driver:${driverState.id}`, JSON.stringify(locationUpdate));
     } catch (err) {
-      console.error('Error sending Kafka message:', err.message);
+      console.error('Kafka error:', err.message);
     }
-  }, 3000); // Send every 3 seconds
+  }, 1000);
 }
 
 // --- API Endpoint ---
 app.get('/location/:driverId', async (req, res) => {
-  const driverId = req.params.driverId;
-  const data = await redisClient.get(`driver:${driverId}`);
-
-  if (data) {
-    res.json(JSON.parse(data));
-  } else {
-    res.status(404).json({ message: 'Driver location not found' });
-  }
+  const data = await redisClient.get(`driver:${req.params.driverId}`);
+  if (data) res.json(JSON.parse(data));
+  else res.status(404).json({ message: 'No location data' });
 });
 
-app.get('/', (req, res) => res.send('Location Service Running'));
+app.post('/mission', (req, res) => {
+  const { pickup, destination } = req.body;
 
-// --- Startup ---
+  const pickupLat = parseFloat(pickup.lat);
+  const pickupLng = parseFloat(pickup.lng);
+
+  driverState.lat = pickupLat + (Math.random() - 0.5) * 0.01;
+  driverState.lng = pickupLng + (Math.random() - 0.5) * 0.01;
+  driverState.targetLat = pickupLat;
+  driverState.targetLng = pickupLng;
+  driverState.finalDest = { lat: parseFloat(destination.lat), lng: parseFloat(destination.lng) };
+  driverState.phase = 'pickup';
+
+  driverState.mission = {
+    pickup: { lat: pickupLat, lng: pickupLng },
+    destination: { lat: driverState.finalDest.lat, lng: driverState.finalDest.lng }
+  };
+
+  res.json({ message: 'Simulation started' });
+});
+
 const PORT = 80;
-app.listen(PORT, async () => {
-  console.log(`Location Service running on port ${PORT}`);
-  await startRedis();
-  await startKafka();
-});
+app.listen(PORT, startInfra);
