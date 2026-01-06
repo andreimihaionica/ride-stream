@@ -72,35 +72,37 @@
         let pickupMarker = null;
         let destMarker = null;
 
-        async function fetchLocation() {
-            try {
-                const response = await fetch(`/api/location/location/1`);
-                if (!response.ok) return;
-                const data = await response.json();
+        // --- Server-Sent Events (SSE) ---
+        const evtSource = new EventSource("/api/location/events");
 
-                carMarker.setLatLng([data.lat, data.lng]);
-                document.getElementById('phase-text').innerText = data.phase.toUpperCase();
+        evtSource.onmessage = function (event) {
+            const data = JSON.parse(event.data);
 
-                if (data.mission) {
-                    if (!pickupMarker) {
-                        pickupMarker = L.marker([data.mission.pickup.lat, data.mission.pickup.lng], { icon: pickupIcon })
+            // Update UI immediately when server pushes data
+            carMarker.setLatLng([data.lat, data.lng]);
+            document.getElementById('phase-text').innerText = data.phase.toUpperCase();
+
+            // Handle Markers
+            if (data.mission) {
+                if (!pickupMarker) {
+                    pickupMarker = L.marker([data.mission.pickup.lat, data.mission.pickup.lng], { icon: pickupIcon })
                             .addTo(map)
                             .bindPopup("🟢 PICKUP LOCATION");
-                    }
-                    if (!destMarker) {
-                        destMarker = L.marker([data.mission.destination.lat, data.mission.destination.lng], { icon: destIcon })
+                }
+                if (!destMarker) {
+                    destMarker = L.marker([data.mission.destination.lat, data.mission.destination.lng], { icon: destIcon })
                             .addTo(map)
                             .bindPopup("🔴 DESTINATION");
-                    }
-                } else {
-                    if (pickupMarker) { map.removeLayer(pickupMarker); pickupMarker = null; }
-                    if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
                 }
+            } else {
+                if (pickupMarker) { map.removeLayer(pickupMarker); pickupMarker = null; }
+                if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+            }
+        };
 
-            } catch (err) { console.error(err); }
-        }
-
-        setInterval(fetchLocation, 1000);
+        evtSource.onerror = function () {
+            console.log("EventSource failed. Reconnecting...");
+        };
     </script>
 </body>
 

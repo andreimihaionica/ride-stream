@@ -27,6 +27,9 @@ let driverState = {
   mission: null // { pickup: {lat,lng}, destination: {lat,lng} }
 };
 
+// --- SSE Clients ---
+let clients = []; // List of connected browsers waiting for updates
+
 // --- Infra Setup ---
 const redisClient = createClient({ url: REDIS_URL });
 redisClient.on('error', (err) => console.error('Redis Client Error', err));
@@ -48,6 +51,10 @@ async function startInfra() {
       const data = JSON.parse(message.value.toString());
       console.log(`Consumer: Updating Redis for Driver ${data.driverId}`);
       await redisClient.set(`driver:${data.driverId}`, JSON.stringify(data));
+
+      clients.forEach(client => {
+        client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+      });
     },
   });
 
@@ -62,7 +69,7 @@ async function triggerInvoice(missionData) {
   const payload = {
     rideId: `ride-${Date.now()}`,
     userId: "passenger-1",
-    email: missionData.email,
+    email: missionData.email || 'test@example.com',
     distanceKm: 4.5,
     timestamp: new Date().toISOString()
   };
@@ -132,6 +139,29 @@ function startDriverSimulation() {
 }
 
 // --- Endpoints ---
+
+// SSE Endpoint (Streaming)
+app.get('/events', (req, res) => {
+  // 1. Set Headers for SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // 2. Add client to list
+  const clientId = Date.now();
+  const newClient = {
+    id: clientId,
+    res
+  };
+  clients.push(newClient);
+
+  // 3. Remove client on disconnect
+  req.on('close', () => {
+    clients = clients.filter(c => c.id !== clientId);
+  });
+});
+
 app.get('/location/:driverId', async (req, res) => {
   const data = await redisClient.get(`driver:${req.params.driverId}`);
   if (data) res.json(JSON.parse(data));
