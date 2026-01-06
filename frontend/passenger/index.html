@@ -94,6 +94,7 @@
     <script>
         let token = '';
         let userId = '';
+        let currentUserEmail = '';
 
         async function register() {
             const email = document.getElementById('email').value;
@@ -122,6 +123,7 @@
                 if (data.token) {
                     token = data.token;
                     userId = 1;
+                    currentUserEmail = email;
                     document.getElementById('login-section').classList.add('hidden');
                     document.getElementById('booking-section').classList.remove('hidden');
                     document.getElementById('user-display').innerText = email;
@@ -200,7 +202,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         pickup: pickupCoords,
-                        destination: destCoords
+                        destination: destCoords,
+                        email: currentUserEmail
                     })
                 });
 
