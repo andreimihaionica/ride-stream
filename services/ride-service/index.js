@@ -4,6 +4,7 @@ const amqp = require('amqplib');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const cors = require('cors');
+const os = require('os');
 
 const app = express();
 app.use(bodyParser.json());
@@ -109,8 +110,8 @@ app.post('/request', authenticateToken, (req, res) => {
   const message = { userId, pickup, destination };
 
   channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(message)));
-
-  console.log('API: Sent to queue:', message);
+  
+  console.log(`[Instance: ${os.hostname()}] API: Request received & sent to queue`);
   res.status(202).json({ message: 'Ride request received, searching for driver...' });
 });
 
