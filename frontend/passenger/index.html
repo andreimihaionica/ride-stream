@@ -47,6 +47,15 @@
         .hidden {
             display: none;
         }
+        
+        #message a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        #message a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 
@@ -194,12 +203,19 @@
             });
 
             if (res.ok) {
-                document.getElementById('message').innerText = "Ride Requested! Driver Dispatched.";
-                document.getElementById('message').style.color = "green";
+                messageEl.innerHTML = `
+                    Ride Requested! Driver Dispatched.<br>
+                    <span style="font-weight:normal; color:black;">A request has been made.</span><br>
+                    <a href="/driver/" target="_blank">📍 Check the live location of your driver here</a>
+                `;
+                messageEl.style.color = "green";
 
                 await fetch('/api/location/mission', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
                     body: JSON.stringify({
                         pickup: pickupCoords,
                         destination: destCoords,

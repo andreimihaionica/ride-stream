@@ -3,10 +3,28 @@ const bodyParser = require('body-parser');
 const { Kafka } = require('kafkajs');
 const { createClient } = require('redis');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// --- Security Config ---
+const SECRET_KEY = 'super_secret_assignment_key'; // Same key as Auth Service
+
+// --- Middleware: Verify Token ---
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    if (err) return res.status(403).json({ message: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+}
 
 // --- Configuration ---
 const KAFKA_BROKER = process.env.KAFKA_BROKER || 'kafka:29092';
@@ -57,7 +75,7 @@ async function startInfra() {
       });
     },
   });
-
+  
   console.log('Infra Connected (Producer + Consumer)');
   startDriverSimulation();
 }
@@ -96,7 +114,7 @@ function startDriverSimulation() {
   setInterval(async () => {
     // Movement Logic
     if (driverState.phase !== 'idle' && driverState.targetLat !== null) {
-      const speed = 0.0005;
+      const speed = 0.0005; 
       driverState.lat = moveTowards(driverState.lat, driverState.targetLat, speed);
       driverState.lng = moveTowards(driverState.lng, driverState.targetLng, speed);
 
@@ -118,13 +136,13 @@ function startDriverSimulation() {
     }
 
     // Broadcast Update
-    const locationUpdate = {
-      driverId: driverState.id,
-      lat: driverState.lat,
-      lng: driverState.lng,
+    const locationUpdate = { 
+      driverId: driverState.id, 
+      lat: driverState.lat, 
+      lng: driverState.lng, 
       phase: driverState.phase,
-      mission: driverState.mission,
-      timestamp: Date.now()
+      mission: driverState.mission, 
+      timestamp: Date.now() 
     };
 
     try {
@@ -168,10 +186,11 @@ app.get('/location/:driverId', async (req, res) => {
   else res.status(404).json({ message: 'No location data' });
 });
 
-app.post('/mission', (req, res) => {
+// --- SECURED ROUTE ---
+app.post('/mission', authenticateToken, (req, res) => {
   const { pickup, destination, email } = req.body;
-
-  driverState.lat = parseFloat(pickup.lat);
+  
+  driverState.lat = parseFloat(pickup.lat); 
   driverState.lng = parseFloat(pickup.lng);
   driverState.targetLat = parseFloat(pickup.lat);
   driverState.targetLng = parseFloat(pickup.lng);
