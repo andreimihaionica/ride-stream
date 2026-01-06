@@ -1,12 +1,34 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const amqp = require('amqplib');
+const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const cors = require('cors');
 
 const app = express();
 app.use(bodyParser.json());
 app.use(cors());
+
+// --- Security Config ---
+const SECRET_KEY = 'super_secret_assignment_key'; // Must match Auth Service key
+
+// --- Middleware: Verify Token ---
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Get "Bearer <token>"
+
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    if (err) {
+      return res.status(403).json({ message: 'Invalid token' });
+    }
+    req.user = user;
+    next();
+  });
+}
 
 // --- Database Connection ---
 const pool = new Pool({
@@ -16,7 +38,6 @@ const pool = new Pool({
   password: process.env.POSTGRES_PASSWORD || 'password',
   port: 5432,
 });
-
 
 async function initDB() {
   try {
@@ -40,19 +61,16 @@ async function initDB() {
 initDB();
 
 // --- RabbitMQ Setup ---
-const RABBIT_URL = 'amqp://rabbitmq'; 
+const RABBIT_URL = 'amqp://rabbitmq';
 const QUEUE_NAME = 'ride_requests';
 let channel;
 
 async function connectRabbit() {
   try {
     const connection = await amqp.connect(RABBIT_URL);
-    
     channel = await connection.createChannel();
     await channel.assertQueue(QUEUE_NAME);
     console.log('Connected to RabbitMQ');
-    
-
     consumeRides();
   } catch (err) {
     console.error('RabbitMQ connection failed, retrying in 5s...', err.message);
@@ -67,14 +85,13 @@ function consumeRides() {
     if (msg !== null) {
       const data = JSON.parse(msg.content.toString());
       console.log('Worker: Processing ride request:', data);
-
       try {
         await pool.query(
           'INSERT INTO rides (user_id, pickup, destination, status) VALUES ($1, $2, $3, $4)',
           [data.userId, data.pickup, data.destination, 'driver_assigned']
         );
         console.log('Worker: Ride saved to DB.');
-        channel.ack(msg); 
+        channel.ack(msg);
       } catch (err) {
         console.error('Error saving ride:', err.message);
       }
@@ -82,16 +99,17 @@ function consumeRides() {
   });
 }
 
-// --- The API (Producer) ---
-app.post('/request', (req, res) => {
-  const { userId, pickup, destination } = req.body;
+// --- SECURED ROUTE ---
+app.post('/request', authenticateToken, (req, res) => {
+  const { pickup, destination } = req.body;
+  const userId = req.user.id;
 
   if (!channel) return res.status(500).json({ message: 'Queue not ready' });
 
   const message = { userId, pickup, destination };
-  
+
   channel.sendToQueue(QUEUE_NAME, Buffer.from(JSON.stringify(message)));
-  
+
   console.log('API: Sent to queue:', message);
   res.status(202).json({ message: 'Ride request received, searching for driver...' });
 });
