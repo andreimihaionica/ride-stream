@@ -25,16 +25,31 @@ let driverState = {
   mission: null // { pickup: {lat,lng}, destination: {lat,lng} }
 };
 
-// --- Redis & Kafka Setup ---
+// --- Infra Setup ---
 const redisClient = createClient({ url: REDIS_URL });
 redisClient.on('error', (err) => console.error('Redis Client Error', err));
+
 const kafka = new Kafka({ clientId: 'location-service', brokers: [KAFKA_BROKER] });
 const producer = kafka.producer();
+const consumer = kafka.consumer({ groupId: 'location-group' });
 
 async function startInfra() {
   await redisClient.connect();
   await producer.connect();
-  console.log('Infra Connected');
+  
+  // --- CONNECT & RUN CONSUMER ---
+  await consumer.connect();
+  await consumer.subscribe({ topic: TOPIC, fromBeginning: false });
+  
+  await consumer.run({
+    eachMessage: async ({ message }) => {
+      const data = JSON.parse(message.value.toString());
+      console.log(`Consumer: Updating Redis for Driver ${data.driverId}`);
+      await redisClient.set(`driver:${data.driverId}`, JSON.stringify(data));
+    },
+  });
+  
+  console.log('Infra Connected (Producer + Consumer)');
   startDriverSimulation();
 }
 
@@ -48,7 +63,7 @@ function startDriverSimulation() {
   setInterval(async () => {
     // Movement Logic
     if (driverState.phase !== 'idle' && driverState.targetLat !== null) {
-      const speed = 0.0002;
+      const speed = 0.0002; 
       driverState.lat = moveTowards(driverState.lat, driverState.targetLat, speed);
       driverState.lng = moveTowards(driverState.lng, driverState.targetLng, speed);
 
@@ -68,13 +83,13 @@ function startDriverSimulation() {
     }
 
     // Broadcast Update
-    const locationUpdate = {
-      driverId: driverState.id,
-      lat: driverState.lat,
-      lng: driverState.lng,
+    const locationUpdate = { 
+      driverId: driverState.id, 
+      lat: driverState.lat, 
+      lng: driverState.lng, 
       phase: driverState.phase,
-      mission: driverState.mission,
-      timestamp: Date.now()
+      mission: driverState.mission, 
+      timestamp: Date.now() 
     };
 
     try {
@@ -82,14 +97,13 @@ function startDriverSimulation() {
         topic: TOPIC,
         messages: [{ value: JSON.stringify(locationUpdate) }],
       });
-      await redisClient.set(`driver:${driverState.id}`, JSON.stringify(locationUpdate));
     } catch (err) {
       console.error('Kafka error:', err.message);
     }
   }, 1000);
 }
 
-// --- API Endpoint ---
+// --- Endpoints ---
 app.get('/location/:driverId', async (req, res) => {
   const data = await redisClient.get(`driver:${req.params.driverId}`);
   if (data) res.json(JSON.parse(data));
@@ -98,20 +112,19 @@ app.get('/location/:driverId', async (req, res) => {
 
 app.post('/mission', (req, res) => {
   const { pickup, destination } = req.body;
-
   const pickupLat = parseFloat(pickup.lat);
   const pickupLng = parseFloat(pickup.lng);
-
-  driverState.lat = pickupLat + (Math.random() - 0.5) * 0.01;
+  
+  driverState.lat = pickupLat + (Math.random() - 0.5) * 0.01; 
   driverState.lng = pickupLng + (Math.random() - 0.5) * 0.01;
   driverState.targetLat = pickupLat;
   driverState.targetLng = pickupLng;
   driverState.finalDest = { lat: parseFloat(destination.lat), lng: parseFloat(destination.lng) };
   driverState.phase = 'pickup';
-
+  
   driverState.mission = {
-    pickup: { lat: pickupLat, lng: pickupLng },
-    destination: { lat: driverState.finalDest.lat, lng: driverState.finalDest.lng }
+      pickup: { lat: pickupLat, lng: pickupLng },
+      destination: { lat: driverState.finalDest.lat, lng: driverState.finalDest.lng }
   };
 
   res.json({ message: 'Simulation started' });
