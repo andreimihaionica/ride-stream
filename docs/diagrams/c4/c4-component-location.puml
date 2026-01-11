@@ -1,0 +1,24 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+title RideStream - C3 Component Diagram (Location Service)
+
+Container_Boundary(location, "Location Service (Node.js/Express)") {
+
+  Component(sse, "SSE Controller", "Express route GET /events", "Streams location updates to connected browsers")
+  Component(mission, "Mission Controller", "Express route POST /mission", "Secured endpoint to set pickup/destination mission")
+  Component(sim, "Driver Simulation Loop", "setInterval", "Updates driver position and phase (idle/pickup/trip)")
+  Component(kProducer, "Kafka Producer", "kafkajs", "Publishes driver-locations topic")
+  Component(kConsumer, "Kafka Consumer", "kafkajs", "Consumes driver-locations topic")
+  Component(redisStore, "Redis Store", "redis client", "Stores latest driver location driver:<id>")
+  Component(authMw, "JWT Middleware", "jsonwebtoken", "Validates Bearer token for secured routes")
+  Component(invoiceCaller, "Invoice Trigger", "HTTP client", "Calls invoice function when trip completes")
+}
+
+Rel(mission, authMw, "Uses")
+Rel(mission, sim, "Sets mission + state")
+Rel(sim, kProducer, "Publishes location updates")
+Rel(kConsumer, redisStore, "Writes latest location")
+Rel(kConsumer, sse, "Pushes updates to all SSE clients")
+Rel(sim, invoiceCaller, "Triggers on completion")
+
+@enduml

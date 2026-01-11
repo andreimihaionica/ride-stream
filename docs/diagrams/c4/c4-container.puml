@@ -1,0 +1,46 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+title RideStream - C2 Container Diagram
+
+Person(passenger, "Passenger")
+Person(driver, "Driver")
+
+System_Boundary(rs, "RideStream") {
+
+  Container(gateway, "API Gateway / Load Balancer", "Nginx", "Routes /api/* to services and serves micro-frontends")
+  Container(passengerApp, "Passenger App (micro-frontend)", "Static HTML/JS", "Register/Login and request rides")
+  Container(driverApp, "Driver Dashboard (micro-frontend)", "Static HTML/JS + Leaflet", "Shows real-time driver movement via SSE")
+
+  Container(auth, "Auth Service", "Node.js (Express)", "User registration + login, issues JWT")
+  Container(ride, "Ride Service", "Node.js (Express)", "Receives ride requests and enqueues work; consumes queue to persist rides")
+  Container(location, "Location Service", "Node.js (Express)", "Simulates driver movement; Kafka stream; Redis cache; SSE to clients")
+  Container(invoiceFn, "Invoice Function (FaaS)", "Python", "Generates receipt and sends email")
+
+  ContainerDb(pg, "PostgreSQL", "Postgres", "Users + rides tables")
+  ContainerQueue(rabbit, "RabbitMQ", "AMQP", "Work queue: ride_requests")
+  ContainerQueue(kafka, "Kafka", "Event Streaming", "Topic: driver-locations")
+  ContainerDb(redis, "Redis", "In-memory store", "Latest driver location by driver:<id>")
+  Container(mailhog, "MailHog", "SMTP server", "Receives outgoing receipt emails")
+}
+
+Rel(passenger, passengerApp, "Uses", "HTTP")
+Rel(driver, driverApp, "Uses", "HTTP")
+
+Rel(passengerApp, gateway, "Calls", "HTTP")
+Rel(driverApp, gateway, "Subscribes", "SSE over HTTP")
+
+Rel(gateway, auth, "Proxies /api/auth/*", "HTTP")
+Rel(gateway, ride, "Proxies /api/ride/* (load balanced)", "HTTP")
+Rel(gateway, location, "Proxies /api/location/* (SSE)", "HTTP")
+
+Rel(auth, pg, "Reads/Writes users", "SQL")
+Rel(ride, pg, "Writes rides", "SQL")
+
+Rel(ride, rabbit, "Publishes + consumes ride_requests", "AMQP")
+Rel(location, kafka, "Produces + consumes driver-locations", "Kafka")
+Rel(location, redis, "Writes/reads driver:<id>", "TCP")
+Rel(location, invoiceFn, "Calls on ride completion", "HTTP")
+
+Rel(invoiceFn, mailhog, "Sends email", "SMTP (1025)")
+
+@enduml

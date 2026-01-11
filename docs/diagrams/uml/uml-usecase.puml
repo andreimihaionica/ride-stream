@@ -1,0 +1,25 @@
+@startuml
+left to right direction
+actor Passenger
+actor Driver
+
+rectangle "RideStream" {
+  usecase "Register" as UC1
+  usecase "Login (JWT)" as UC2
+  usecase "Request Ride" as UC3
+  usecase "Start Driver Simulation" as UC4
+  usecase "View Live Driver Location (SSE)" as UC5
+  usecase "Generate & Email Receipt (FaaS)" as UC6
+}
+
+Passenger --> UC1
+Passenger --> UC2
+Passenger --> UC3
+Passenger --> UC4
+
+Driver --> UC5
+
+UC3 ..> UC2 : <<includes>>
+UC4 ..> UC2 : <<includes>>
+UC6 ..> UC4 : <<extends>> (on completion)
+@enduml

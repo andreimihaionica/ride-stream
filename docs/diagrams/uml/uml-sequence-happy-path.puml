@@ -1,0 +1,63 @@
+@startuml
+actor Passenger
+participant "Passenger App\n(/passenger)" as WebP
+participant "Nginx Gateway\n(:8080)" as GW
+participant "Auth Service" as Auth
+participant "Ride Service" as Ride
+queue "RabbitMQ\nride_requests" as RMQ
+participant "Ride Worker\n(in Ride Service)" as Worker
+database "PostgreSQL" as PG
+participant "Location Service" as Loc
+queue "Kafka\ndriver-locations" as Kafka
+database "Redis" as Redis
+participant "Driver Dashboard\n(/driver)" as WebD
+participant "Invoice Function" as Fn
+participant "MailHog" as Mail
+
+== Register & Login ==
+Passenger -> WebP: Enter email/password
+WebP -> GW: POST /api/auth/register
+GW -> Auth: POST /register
+Auth -> PG: INSERT user
+Auth --> GW: 201
+GW --> WebP: 201
+
+WebP -> GW: POST /api/auth/login
+GW -> Auth: POST /login
+Auth -> PG: SELECT user + verify password
+Auth --> GW: {token}
+GW --> WebP: {token}
+
+== Request Ride (async) ==
+Passenger -> WebP: Select pickup/destination\nClick "Request Ride"
+WebP -> GW: POST /api/ride/request (Bearer token)
+GW -> Ride: POST /request
+Ride -> RMQ: publish {userId,pickup,destination}
+Ride --> GW: 202 Accepted
+GW --> WebP: 202
+
+Worker -> RMQ: consume message
+Worker -> PG: INSERT ride (status=driver_assigned)
+Worker --> RMQ: ack
+
+== Start mission + real-time location ==
+WebP -> GW: POST /api/location/mission (Bearer token + coords + email)
+GW -> Loc: POST /mission
+Loc --> GW: 200
+GW --> WebP: 200
+
+WebD -> GW: GET /api/location/events (SSE)
+GW -> Loc: GET /events (SSE stream)
+
+loop every 1s
+  Loc -> Kafka: produce driver-locations {lat,lng,phase,mission}
+  Loc -> Kafka: consume driver-locations
+  Loc -> Redis: SET driver:1 = latest
+  Loc --> WebD: SSE data: {lat,lng,phase,mission}
+end
+
+== Completion triggers FaaS ==
+Loc -> Fn: POST / (invoice payload)
+Fn -> Mail: SMTP send receipt email
+Fn --> Loc: {status: email_sent}
+@enduml

@@ -1,0 +1,51 @@
+@startuml
+skinparam classAttributeIconSize 0
+
+class User {
+  +id: int
+  +email: string
+  +passwordHash: string
+  +role: string
+}
+
+class Ride {
+  +id: int
+  +userId: int
+  +pickup: string
+  +destination: string
+  +status: string
+  +createdAt: timestamp
+}
+
+class RideRequestMessage {
+  +userId: int
+  +pickup: string
+  +destination: string
+}
+
+class DriverLocationUpdate {
+  +driverId: int
+  +lat: double
+  +lng: double
+  +phase: string
+  +timestamp: long
+  +mission: Mission?
+}
+
+class Mission {
+  +pickup: Coords
+  +destination: Coords
+  +email: string
+}
+
+class Coords {
+  +lat: double
+  +lng: double
+}
+
+User "1" -- "0..*" Ride : places >
+RideRequestMessage ..> Ride : becomes persisted as >
+DriverLocationUpdate "0..*" o-- Mission
+Mission o-- Coords : pickup
+Mission o-- Coords : destination
+@enduml

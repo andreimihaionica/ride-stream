@@ -1,0 +1,19 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+title RideStream - C1 System Context
+
+Person(passenger, "Passenger", "Registers/logs in and requests rides")
+Person(driver, "Driver", "Views live driver position on map (dashboard)")
+System_Boundary(rs, "RideStream System") {
+  System(ridestream, "RideStream", "Distributed ride-sharing platform")
+}
+
+System_Ext(mailhog, "MailHog", "SMTP testing server (fake inbox)")
+System_Ext(osm, "OpenStreetMap", "Map tiles for UI")
+
+Rel(passenger, ridestream, "Uses passenger web app", "HTTP")
+Rel(driver, ridestream, "Uses driver dashboard", "HTTP")
+Rel(ridestream, mailhog, "Sends receipt emails via invoice function", "SMTP")
+Rel(ridestream, osm, "Loads map tiles", "HTTPS")
+
+@enduml
